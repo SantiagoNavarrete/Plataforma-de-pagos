@@ -1,0 +1,411 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum EventCategory {
+  CONCERT
+  THEATER
+  SPORT
+  FESTIVAL
+}
+
+enum EventStatus {
+  DRAFT
+  PUBLISHED
+  CANCELLED
+  COMPLETED
+}
+
+enum OrderStatus {
+  PENDING
+  PAYMENT_PENDING
+  CONFIRMED
+  EXPIRED
+  CANCELLED
+  REFUNDED
+  PARTIALLY_REFUNDED
+}
+
+enum PaymentProvider {
+  MERCADO_PAGO
+  STRIPE
+  CONEKTA
+  OPENPAY
+  PAYPAL
+}
+
+enum PaymentMethod {
+  CREDIT_CARD
+  DEBIT_CARD
+  OXXO
+  SPEI
+  WALLET
+  PAYPAL
+  APPLE_PAY
+  GOOGLE_PAY
+}
+
+enum PaymentStatus {
+  PENDING
+  PROCESSING
+  AUTHORIZED
+  PAID
+  FAILED
+  EXPIRED
+  REFUNDED
+  PARTIALLY_REFUNDED
+}
+
+enum TicketStatus {
+  VALID
+  USED
+  CANCELLED
+  REFUNDED
+}
+
+enum TicketEmailStatus {
+  PENDING
+  PROCESSING
+  SENT
+  FAILED
+}
+
+enum InvoiceStatus {
+  REQUESTED
+  PROCESSING
+  ISSUED
+  FAILED
+  CANCELLED
+}
+
+model User {
+  id            String     @id @default(uuid()) @db.Uuid
+  email         String     @unique @db.VarChar(320)
+  name          String     @default("") @db.VarChar(160)
+  emailVerified Boolean    @default(false)
+  image         String?
+  passwordHash  String?
+  role          String     @default("user") @db.VarChar(32)
+  banned        Boolean    @default(false)
+  banReason     String?
+  banExpires    DateTime?  @db.Timestamptz(3)
+  accounts      Account[]
+  sessions      Session[]
+  orders        Order[]
+  auditLogs     AuditLog[]
+  createdAt     DateTime   @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime   @updatedAt @db.Timestamptz(3)
+}
+
+model Account {
+  id                    String    @id @default(uuid()) @db.Uuid
+  accountId             String    @map("providerAccountId") @db.VarChar(255)
+  providerId            String    @map("provider") @db.VarChar(50)
+  userId                String    @db.Uuid
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?   @db.Text
+  refreshToken          String?   @db.Text
+  idToken               String?   @db.Text
+  accessTokenExpiresAt  DateTime? @db.Timestamptz(3)
+  refreshTokenExpiresAt DateTime? @db.Timestamptz(3)
+  scope                 String?   @db.Text
+  password              String?   @db.Text
+  createdAt             DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt             DateTime  @default(now()) @updatedAt @db.Timestamptz(3)
+
+  @@unique([providerId, accountId], map: "AuthAccount_provider_providerAccountId_key")
+  @@index([userId], map: "AuthAccount_userId_idx")
+  @@map("AuthAccount")
+}
+
+model Session {
+  id             String   @id @default(uuid()) @db.Uuid
+  expiresAt      DateTime @db.Timestamptz(3)
+  token          String   @unique @db.VarChar(255)
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime @default(now()) @updatedAt @db.Timestamptz(3)
+  ipAddress      String?  @db.VarChar(45)
+  userAgent      String?  @db.VarChar(500)
+  userId         String   @db.Uuid
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  impersonatedBy String?  @db.VarChar(255)
+
+  @@index([userId])
+  @@map("AuthSession")
+}
+
+model Verification {
+  id         String   @id @default(uuid()) @db.Uuid
+  identifier String   @db.VarChar(320)
+  value      String   @db.VarChar(500)
+  expiresAt  DateTime @db.Timestamptz(3)
+  createdAt  DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt  DateTime @default(now()) @updatedAt @db.Timestamptz(3)
+
+  @@index([identifier])
+  @@map("AuthVerification")
+}
+
+model RateLimit {
+  id          String @id @default(uuid()) @db.Uuid
+  key         String @unique @db.VarChar(255)
+  count       Int
+  lastRequest BigInt
+
+  @@map("AuthRateLimit")
+}
+
+model Venue {
+  id         String      @id @default(uuid()) @db.Uuid
+  slug       String      @unique @db.VarChar(180)
+  name       String      @db.VarChar(200)
+  address    String?     @db.VarChar(300)
+  city       String      @db.VarChar(120)
+  state      String      @db.VarChar(120)
+  country    String      @default("México") @db.VarChar(80)
+  postalCode String?     @db.VarChar(12)
+  latitude   Decimal?    @db.Decimal(9, 6)
+  longitude  Decimal?    @db.Decimal(9, 6)
+  timeZone   String      @default("America/Mexico_City") @db.VarChar(80)
+  events     Event[]
+  seats      VenueSeat[]
+  createdAt  DateTime    @default(now()) @db.Timestamptz(3)
+  updatedAt  DateTime    @updatedAt @db.Timestamptz(3)
+
+  @@index([city, state])
+}
+
+model VenueSeat {
+  id         String @id @default(uuid()) @db.Uuid
+  venueId    String @db.Uuid
+  section    String @db.VarChar(100)
+  row        String @db.VarChar(30)
+  seatNumber String @db.VarChar(30)
+
+  venue Venue @relation(fields: [venueId], references: [id], onDelete: Cascade)
+
+  @@unique([venueId, section, row, seatNumber])
+  @@index([venueId, section, row])
+}
+
+model Event {
+  id          String            @id @default(uuid()) @db.Uuid
+  slug        String            @unique @db.VarChar(180)
+  title       String            @db.VarChar(200)
+  artist      String            @db.VarChar(200)
+  description String            @db.Text
+  category    EventCategory
+  status      EventStatus       @default(DRAFT)
+  startsAt    DateTime          @db.Timestamptz(3)
+  endsAt      DateTime?         @db.Timestamptz(3)
+  timeZone    String            @default("America/Mexico_City") @db.VarChar(80)
+  venueId     String            @db.Uuid
+  venue       Venue             @relation(fields: [venueId], references: [id], onDelete: Restrict)
+  ticketZones TicketZone[]
+  orderItems  OrderItem[]
+  buyerLimits EventBuyerLimit[]
+  createdAt   DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime          @updatedAt @db.Timestamptz(3)
+
+  @@index([status, category, startsAt])
+  @@index([venueId, startsAt])
+}
+
+model TicketZone {
+  id                String      @id @default(uuid()) @db.Uuid
+  eventId           String      @db.Uuid
+  name              String      @db.VarChar(120)
+  description       String      @db.VarChar(300)
+  priceCents        Int
+  currency          String      @default("MXN") @db.VarChar(3)
+  inventoryTotal    Int
+  inventoryReserved Int         @default(0)
+  inventorySold     Int         @default(0)
+  isReservedSeating Boolean     @default(false)
+  event             Event       @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  orderItems        OrderItem[]
+  tickets           Ticket[]
+  createdAt         DateTime    @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime    @updatedAt @db.Timestamptz(3)
+
+  @@unique([eventId, name])
+  @@index([eventId, priceCents])
+}
+
+model EventBuyerLimit {
+  eventId         String   @db.Uuid
+  email           String   @db.VarChar(320)
+  ticketsReserved Int      @default(0)
+  ticketsSold     Int      @default(0)
+  event           Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime @updatedAt @db.Timestamptz(3)
+
+  @@id([eventId, email])
+  @@index([email])
+}
+
+model Order {
+  id                  String               @id @default(uuid()) @db.Uuid
+  orderNumber         String               @unique @db.VarChar(32)
+  userId              String?              @db.Uuid
+  user                User?                @relation(fields: [userId], references: [id], onDelete: SetNull)
+  guestEmail          String               @db.VarChar(320)
+  status              OrderStatus          @default(PENDING)
+  currency            String               @default("MXN") @db.VarChar(3)
+  subtotalCents       Int
+  serviceFeeCents     Int                  @default(0)
+  taxCents            Int                  @default(0)
+  totalCents          Int
+  reservationEndsAt   DateTime?            @db.Timestamptz(3)
+  items               OrderItem[]
+  payments            Payment[]
+  tickets             Ticket[]
+  ticketEmailDelivery TicketEmailDelivery?
+  invoice             Invoice?
+  auditLogs           AuditLog[]
+  createdAt           DateTime             @default(now()) @db.Timestamptz(3)
+  updatedAt           DateTime             @updatedAt @db.Timestamptz(3)
+
+  @@index([userId, createdAt])
+  @@index([guestEmail, createdAt])
+  @@index([status, reservationEndsAt])
+}
+
+model OrderItem {
+  id              String     @id @default(uuid()) @db.Uuid
+  orderId         String     @db.Uuid
+  eventId         String     @db.Uuid
+  ticketZoneId    String     @db.Uuid
+  quantity        Int
+  unitPriceCents  Int
+  serviceFeeCents Int        @default(0)
+  taxCents        Int        @default(0)
+  order           Order      @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  event           Event      @relation(fields: [eventId], references: [id], onDelete: Restrict)
+  ticketZone      TicketZone @relation(fields: [ticketZoneId], references: [id], onDelete: Restrict)
+  tickets         Ticket[]
+  createdAt       DateTime   @default(now()) @db.Timestamptz(3)
+
+  @@index([orderId])
+  @@index([eventId, ticketZoneId])
+}
+
+model Payment {
+  id                   String           @id @default(uuid()) @db.Uuid
+  orderId              String           @db.Uuid
+  order                Order            @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  provider             PaymentProvider
+  method               PaymentMethod?
+  status               PaymentStatus    @default(PENDING)
+  amountCents          Int
+  currency             String           @default("MXN") @db.VarChar(3)
+  providerPreferenceId String?          @db.VarChar(200)
+  checkoutUrl          String?          @db.VarChar(1000)
+  providerPaymentId    String?          @db.VarChar(200)
+  idempotencyKey       String           @unique @db.VarChar(160)
+  paymentReference     String?          @db.VarChar(200)
+  expiresAt            DateTime?        @db.Timestamptz(3)
+  webhookReceipts      WebhookReceipt[]
+  auditLogs            AuditLog[]
+  createdAt            DateTime         @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime         @updatedAt @db.Timestamptz(3)
+
+  @@unique([provider, providerPaymentId])
+  @@index([orderId, status])
+  @@index([status, expiresAt])
+  @@index([providerPreferenceId])
+}
+
+model WebhookReceipt {
+  id              String          @id @default(uuid()) @db.Uuid
+  provider        PaymentProvider
+  providerEventId String          @db.VarChar(200)
+  paymentId       String?         @db.Uuid
+  payment         Payment?        @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+  eventType       String          @db.VarChar(120)
+  signatureValid  Boolean
+  processedAt     DateTime?       @db.Timestamptz(3)
+  createdAt       DateTime        @default(now()) @db.Timestamptz(3)
+
+  @@unique([provider, providerEventId])
+  @@index([paymentId, createdAt])
+}
+
+model Ticket {
+  id           String       @id @default(uuid()) @db.Uuid
+  orderId      String       @db.Uuid
+  orderItemId  String       @db.Uuid
+  ticketZoneId String       @db.Uuid
+  sequence     Int
+  status       TicketStatus @default(VALID)
+  tokenHash    String       @unique @db.VarChar(128)
+  issuedAt     DateTime     @default(now()) @db.Timestamptz(3)
+  checkedInAt  DateTime?    @db.Timestamptz(3)
+  order        Order        @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  orderItem    OrderItem    @relation(fields: [orderItemId], references: [id], onDelete: Restrict)
+  ticketZone   TicketZone   @relation(fields: [ticketZoneId], references: [id], onDelete: Restrict)
+
+  @@unique([orderItemId, sequence])
+  @@index([orderId])
+  @@index([ticketZoneId, status])
+}
+
+model TicketEmailDelivery {
+  id        String            @id @default(uuid()) @db.Uuid
+  orderId   String            @unique @db.Uuid
+  order     Order             @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  status    TicketEmailStatus @default(PENDING)
+  attempts  Int               @default(0)
+  lastError String?           @db.VarChar(500)
+  sentAt    DateTime?         @db.Timestamptz(3)
+  createdAt DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime          @updatedAt @db.Timestamptz(3)
+
+  @@index([status, updatedAt])
+}
+
+model Invoice {
+  id                String        @id @default(uuid()) @db.Uuid
+  orderId           String        @unique @db.Uuid
+  order             Order         @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  status            InvoiceStatus @default(REQUESTED)
+  rfc               String        @db.VarChar(13)
+  legalName         String        @db.VarChar(254)
+  taxRegime         String        @db.VarChar(3)
+  postalCode        String        @db.VarChar(5)
+  cfdiUse           String        @db.VarChar(3)
+  providerInvoiceId String?       @db.VarChar(200)
+  xmlUrl            String?       @db.VarChar(1000)
+  pdfUrl            String?       @db.VarChar(1000)
+  failureCode       String?       @db.VarChar(100)
+  createdAt         DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime      @updatedAt @db.Timestamptz(3)
+
+  @@index([status, createdAt])
+}
+
+model AuditLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String?  @db.Uuid
+  orderId    String?  @db.Uuid
+  paymentId  String?  @db.Uuid
+  action     String   @db.VarChar(120)
+  entityType String   @db.VarChar(80)
+  entityId   String   @db.VarChar(200)
+  details    Json?
+  ipAddress  String?  @db.VarChar(45)
+  createdAt  DateTime @default(now()) @db.Timestamptz(3)
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  order      Order?   @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  payment    Payment? @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+
+  @@index([entityType, entityId, createdAt])
+  @@index([orderId, createdAt])
+  @@index([paymentId, createdAt])
+}
