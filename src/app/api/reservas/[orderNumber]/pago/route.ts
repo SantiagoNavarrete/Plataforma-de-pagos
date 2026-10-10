@@ -40,8 +40,19 @@ export async function POST(_request: Request, { params }: PaymentRouteProps) {
   const accessToken = process.env.MERCADO_PAGO_ACCESS_TOKEN;
   const webhookSecret = process.env.MERCADO_PAGO_WEBHOOK_SECRET;
   const appUrl = process.env.APP_URL;
+  const checkoutMode =
+    process.env.MERCADO_PAGO_CHECKOUT_MODE ??
+    (process.env.NODE_ENV === "production" ? "production" : "sandbox");
 
   if (!accessToken || !webhookSecret || !appUrl) {
+    return NextResponse.json(
+      { error: "El pago en línea aún no está configurado." },
+      { status: 503 },
+    );
+  }
+
+  if (checkoutMode !== "sandbox" && checkoutMode !== "production") {
+    console.error("MERCADO_PAGO_CHECKOUT_MODE debe ser sandbox o production.");
     return NextResponse.json(
       { error: "El pago en línea aún no está configurado." },
       { status: 503 },
@@ -114,10 +125,12 @@ export async function POST(_request: Request, { params }: PaymentRouteProps) {
     );
   }
 
+  const preferenceIdempotencyKey = `boleta-pref-${order.id}-${checkoutMode}`;
   const existingPreference = await prisma.payment.findFirst({
     where: {
       orderId: order.id,
       provider: PaymentProvider.MERCADO_PAGO,
+      idempotencyKey: preferenceIdempotencyKey,
       providerPreferenceId: { not: null },
       checkoutUrl: { not: null },
     },
@@ -129,7 +142,6 @@ export async function POST(_request: Request, { params }: PaymentRouteProps) {
     return NextResponse.json({ checkoutUrl: existingPreference.checkoutUrl });
   }
 
-  const preferenceIdempotencyKey = `boleta-pref-${order.id}`;
   const preferencePayment = await prisma.payment.upsert({
     where: { idempotencyKey: preferenceIdempotencyKey },
     create: {
@@ -217,9 +229,17 @@ export async function POST(_request: Request, { params }: PaymentRouteProps) {
   }
 
   const checkoutUrl =
-    process.env.NODE_ENV !== "production" && preference.sandbox_init_point
+    checkoutMode === "sandbox"
       ? preference.sandbox_init_point
       : preference.init_point;
+
+  if (!checkoutUrl || !isMercadoPagoCheckoutUrl(checkoutUrl)) {
+    console.error(`Mercado Pago no devolvió una URL de checkout ${checkoutMode} válida.`);
+    return NextResponse.json(
+      { error: "No pudimos iniciar el pago con Mercado Pago. Intenta de nuevo." },
+      { status: 502 },
+    );
+  }
 
   try {
     await prisma.$transaction(async (tx) => {

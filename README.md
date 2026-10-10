@@ -30,7 +30,9 @@ npm run dev
 ```
 
 Visita [http://localhost:3000](http://localhost:3000). Los comandos de base de datos requieren Docker Desktop, PostgreSQL disponible y `DATABASE_URL` en `.env`.
-Al desplegar en un entorno productivo, configura primero las variables secretas del servidor y aplica las migraciones con `npx prisma migrate deploy`.
+Al desplegar en Vercel, selecciona como **Root Directory** la carpeta del proyecto (la que contiene `package.json`, `prisma/` y `vercel.json`). Para usar Supabase como PostgreSQL, abre **Connect** en el panel del proyecto y configura `DATABASE_URL` con la cadena **Transaction pooler** (puerto 6543) para las funciones de Vercel; conserva los parámetros `pgbouncer=true`, `connection_limit=1` y `sslmode=require`. Configura `DIRECT_URL` con la cadena **Session pooler** o **Direct connection** para migraciones (si el entorno no tiene IPv6, usa Session pooler). Usa la contraseña de la base de datos de Supabase, no la publishable key de la API. Añade ambas variables en Vercel y en el entorno local; no las publiques ni las guardes en Git.
+
+Con esas variables configuradas, ejecuta `npx prisma migrate deploy` para aplicar las migraciones y `npm run db:seed` una sola vez para cargar el catálogo de demostración. El proyecto sigue usando Prisma para la base y Better Auth para cuentas; no necesita `@supabase/supabase-js`, `@supabase/ssr`, la URL pública ni la publishable key para este flujo.
 
 Para habilitar registro e inicio de sesión, configura `AUTH_SECRET` (aleatorio, al menos 32 bytes), `APP_URL` y las variables SMTP del correo de verificación. `GOOGLE_CLIENT_ID` y `GOOGLE_CLIENT_SECRET` son opcionales; el URI de retorno autorizado en Google es `${APP_URL}/api/auth/callback/google`. Sin la configuración de autenticación se conserva la compra como invitado, pero las funciones de cuenta y administración responden como no configuradas.
 
@@ -97,7 +99,7 @@ docker-compose.yml            # PostgreSQL local
 
 ## Mercado Pago (Checkout Pro)
 
-Configura `MERCADO_PAGO_ACCESS_TOKEN`, `MERCADO_PAGO_WEBHOOK_SECRET` y `APP_URL` como variables de entorno del servidor (por ejemplo, en `.env` local y en las variables del despliegue). Usa credenciales de prueba para desarrollo y configura la URL pública HTTPS `/api/pagos/webhook` en la aplicación de Mercado Pago. Checkout Pro conserva los datos de tarjeta en la pasarela; el servidor solo crea preferencias y verifica el pago consultando el recurso firmado.
+Configura `MERCADO_PAGO_ACCESS_TOKEN`, `MERCADO_PAGO_WEBHOOK_SECRET`, `MERCADO_PAGO_CHECKOUT_MODE` y `APP_URL` como variables de entorno del servidor (por ejemplo, en `.env` local y en las variables del despliegue). Para pagos de muestra en Vercel, establece `MERCADO_PAGO_CHECKOUT_MODE=sandbox` y usa credenciales de prueba de Mercado Pago; el modo sandbox selecciona `sandbox_init_point` también cuando Next.js corre en producción. Para cobrar realmente, establece `MERCADO_PAGO_CHECKOUT_MODE=production` y usa credenciales productivas. Configura la URL pública HTTPS `/api/pagos/webhook` en Mercado Pago. Checkout Pro conserva los datos de tarjeta en la pasarela; el servidor solo crea preferencias y verifica el pago consultando el recurso firmado.
 
 La preferencia excluye efectivo (`ticket`) y transferencia (`bank_transfer`) porque se eligió una reserva de inventario de 10 minutos. Acepta los medios en línea que habilite la cuenta de Mercado Pago; solicita hasta 12 mensualidades cuando la tarjeta y la cuenta sean elegibles. Disponibilidad de MSI, 3D Secure y billetera depende del proveedor, emisor y configuración del comercio. PayPal y las integraciones independientes de Apple Pay/Google Pay aún no están conectadas.
 
@@ -129,7 +131,7 @@ Configura estas variables del servidor en `.env` y en el hosting:
 - `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`: conexión SMTP del proveedor de correo.
 - `CRON_SECRET`: secreto aleatorio de al menos 32 bytes para proteger `/api/cron/ticket-emails`.
 
-Puedes crear secretos localmente con `node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"`. Repite el comando para obtener una clave distinta para cada variable. Los registros de entrega fallidos se reintentan desde el cron de Vercel configurado cada cinco minutos; si el proveedor SMTP está caído, el endpoint acepta solicitudes `GET` o `POST` con `Authorization: Bearer <CRON_SECRET>`.
+Puedes crear secretos localmente con `node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"`. Repite el comando para obtener una clave distinta para cada variable. El cron incluido se ejecuta una vez al día a las 09:00 UTC (Vercel Hobby puede demorarlo hasta 59 minutos); los correos fallidos pueden tardar hasta un día en reintentarse. Vercel Hobby solo permite ejecuciones de cron diarias; para conservar reintentos cada cinco minutos se necesita un plan compatible o un programador externo. El endpoint acepta solicitudes `GET` o `POST` con `Authorization: Bearer <CRON_SECRET>`.
 
 Después de diez intentos fallidos, una entrega queda en estado `FAILED` para revisión; tras corregir SMTP, un operador puede reencolarla desde PostgreSQL con `UPDATE "TicketEmailDelivery" SET "status" = 'PENDING', "attempts" = 0, "lastError" = NULL, "updatedAt" = CURRENT_TIMESTAMP WHERE "id" = '<id>' AND "status" = 'FAILED';`.
 
