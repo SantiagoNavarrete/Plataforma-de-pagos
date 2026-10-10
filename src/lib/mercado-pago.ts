@@ -7,6 +7,11 @@ const preferenceResponseSchema = z.object({
   sandbox_init_point: z.string().url().optional(),
 });
 
+const mercadoPagoErrorSchema = z.object({
+  message: z.string().optional(),
+  cause: z.array(z.unknown()).optional(),
+}).passthrough();
+
 export const paymentResponseSchema = z.object({
   id: z.union([z.string(), z.number()]).transform(String),
   status: z.string(),
@@ -26,6 +31,7 @@ export class MercadoPagoHttpError extends Error {
   constructor(
     readonly status: number,
     message = "Mercado Pago no pudo completar la solicitud.",
+    readonly providerCause: unknown[] = [],
   ) {
     super(message);
     this.name = "MercadoPagoHttpError";
@@ -56,6 +62,35 @@ async function readResponse(response: Response) {
     }
     throw error;
   }
+}
+
+function redactProviderError(value: unknown, accessToken: string): unknown {
+  if (typeof value === "string") {
+    const withoutToken = accessToken
+      ? value.split(accessToken).join("[redacted]")
+      : value;
+    return withoutToken.replace(
+      /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi,
+      "[redacted-email]",
+    );
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((entry) => redactProviderError(entry, accessToken));
+  }
+
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, entry]) => [
+        key,
+        /email|payer|buyer|token|authorization|phone|document|identification/i.test(key)
+          ? "[redacted]"
+          : redactProviderError(entry, accessToken),
+      ]),
+    );
+  }
+
+  return value;
 }
 
 export function isMercadoPagoCheckoutUrl(value: string) {
@@ -122,10 +157,18 @@ export async function createMercadoPagoPreference(
   const responseBody = await readResponse(response);
 
   if (!response.ok) {
+    const parsedError = mercadoPagoErrorSchema.safeParse(responseBody);
+    const message = parsedError.success
+      ? parsedError.data.message ?? "Mercado Pago rechazó la preferencia de pago."
+      : "Mercado Pago rechazó la preferencia de pago.";
+    const cause = parsedError.success ? parsedError.data.cause ?? [] : [];
+
     console.error("Mercado Pago rechazó la preferencia de pago.", {
       status: response.status,
+      message: redactProviderError(message, accessToken),
+      cause: redactProviderError(cause, accessToken),
     });
-    throw new MercadoPagoHttpError(response.status);
+    throw new MercadoPagoHttpError(response.status, message, cause);
   }
 
   const parsed = preferenceResponseSchema.safeParse(responseBody);
