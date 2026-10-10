@@ -29,7 +29,7 @@ npm run db:seed
 npm run dev
 ```
 
-Visita [http://localhost:3000](http://localhost:3000). Los comandos de base de datos requieren Docker Desktop, PostgreSQL disponible y `DATABASE_URL` en `.env`.
+Visita [http://localhost:3000](http://localhost:3000). Los comandos de base de datos requieren Docker Desktop, PostgreSQL disponible y `DATABASE_URL` en `.env`. `npm run db:seed` carga `.env` automáticamente; para que apunte a Supabase, reemplaza los valores locales de `DATABASE_URL` y `DIRECT_URL` por las cadenas de conexión del proyecto.
 Al desplegar en Vercel, selecciona como **Root Directory** la carpeta del proyecto (la que contiene `package.json`, `prisma/` y `vercel.json`). Para usar Supabase como PostgreSQL, abre **Connect** en el panel del proyecto y configura `DATABASE_URL` con la cadena **Transaction pooler** (puerto 6543) para las funciones de Vercel; conserva los parámetros `pgbouncer=true`, `connection_limit=1` y `sslmode=require`. Configura `DIRECT_URL` con la cadena **Session pooler** o **Direct connection** para migraciones (si el entorno no tiene IPv6, usa Session pooler). Usa la contraseña de la base de datos de Supabase, no la publishable key de la API. Añade ambas variables en Vercel y en el entorno local; no las publiques ni las guardes en Git.
 
 Con esas variables configuradas, ejecuta `npx prisma migrate deploy` para aplicar las migraciones y `npm run db:seed` una sola vez para cargar el catálogo de demostración. El proyecto sigue usando Prisma para la base y Better Auth para cuentas; no necesita `@supabase/supabase-js`, `@supabase/ssr`, la URL pública ni la publishable key para este flujo.

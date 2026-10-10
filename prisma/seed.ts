@@ -3,7 +3,10 @@ import {
   EventStatus,
   PrismaClient,
 } from "@prisma/client";
+import { loadEnvConfig } from "@next/env";
 import { demoZoneId, events, type Event } from "../src/lib/events";
+
+loadEnvConfig(process.cwd());
 
 const prisma = new PrismaClient();
 
